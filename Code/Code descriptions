@@ -1,0 +1,460 @@
+MatLab cosmo paper code descriptions
+
+ 
+antatm (elevation) function
+
+This function converts the geodetic elevation z in meters to atmospheric pressure p in hPa using the pressure-elevation relationships specifically for Antarctica.
+
+Reference
+
+Radok, Allison, Wendler, 1996. Atmospheric pressure over the interior of Antarctica. Antarctic Science 0 p. 209. 
+
+
+input
+	elevation – geodetic elevation in meters
+output
+	 pressure – atmospheric pressure in hPa
+
+Example
+
+elv_m = 1686; % meters. 
+ 
+pressure = antatm(elv_m); % convert to atmospheric pressure in hPa
+
+
+ 
+get_burial_age (X,samples,ztill,burialmask,P)
+
+This function accepts the optimized 'X' structure and the till thickness structure 'ztill', obtain the sublimation parameters and set the inheritance parameters to zero, runs the forward model and add the predicted concentrations to the sampledata, finds the difference between the modeled and measured nuclide concentrations and caluclate the apparent burial age for a simple exposure and having steady-state erosion using the fsolver funtion.
+ 
+This burial age is used as a constraint for the the forward model optimization as the optimized age cannot be older than the minimum burial age for any samples across all nuclide ratios.
+ 
+The output is a burial age structure 'tb', which includes the following for each nuclide ratio: Be-10/Al-26, Be-10/Ne-21, Al-26/Ne-21
+
+NaN is used for samples not used for burial calculations as indictated in burialmaks (= 0).
+
+Input
+
+	X – the parameter vector
+X(1) sublimation rate m/Myr
+X(2) erosion rate m/Myr
+X(3) age Ma
+X(4) inherited N10 (100000 atoms)
+X(5) inherited N21 (Matoms)
+X(6) inherited N26 (100000 atoms)
+	samples – saved datasample structure
+ztill – till thicknes structure: depth (.z) and mass depth (.dz)
+P – the production rate structure (Pall)
+Burialmask – n-element vector of zeroes and ones that tells which samples to consider for calculating burial age. 1 = use and 0 = don’t use
+
+Output
+
+tb.te_tb_N10_N26 = [te tb]
+tb.te_tb_N10_N21 = [te tb]
+tb.te_tb_N26_N21 = [te tb]
+
+tb.ee_tb_N10_N26 = [ee tb] 
+tb.ee_tb_N10_N21 = [ee tb] 
+tb.ee_tb_N26_N21 = [ee tb] 
+
+Example
+
+ 
+get_misfit(data, samples, P, mask, nmask, DataDumpFlag, plotFlag) function
+
+This function returns a single misfit value between modeled prediction and measured sample data, based on a goodness of fit calculation; ex. Chi-Square-like. The function is called upon within the objective_sublimation_model which includes all necessary parameters
+
+
+
+Input
+	data – data structure generated from sublimation_model_params.m
+	samples – saved datasample structure
+	P – the production rate structure (Pall)
+mask – n-element vector of zeroes and ones that tells which samples to consider in calculating the misfit. 1 = use and 0 = don’t use
+nmask – similar mask for nuclides to use.
+dataDumpFlag – returns the predicted concentrations if requested (dataDumpFlag = 1) 
+plotFlag – if omitted, plots predicted nuclide concentration. PlotFlag = 0 suppresses the plot and only provide the predicted nuclide concentration values
+
+Output
+	Out – Return single misfit value for use by optimizer
+Out.nXp – if requested, returns the predicted cosmogenic nuclide concentrations of X element as a structure.
+
+Example
+ 
+MC_optimizer_setting script
+
+This script runs a Monte Carlo simulation for the forward model fitting error to the data set through optimization. The optimizer accepts a set of given initial data parameters x0 and objectively finds a new set of x values that satisfy a minimum best fit value based on the objective_sublimation_model.m function and given constraints.
+
+The forward model predicts the accumulation of cosmogenic nuclide 10Be, 26Al, and 21Ne in the ice core and the above laying supraglacial debris during a single event of exposure, where sublimation, surface erosion and accumulation of supraglacial debris has occurred. The predicted nuclide concentrations are solved numerically using the default integration algorithm in MATLAB. The predicted nuclide concentrations are then fitted to the measured nuclide concentrations in the ice core. A best fit is found using the minimum constrained nonlinear multivariable optimizing function (fmincon) in MATLAB and optimize for the free parameters; (i) the age the ice was emplaced, (ii) sublimation rate of the ice since emplacement, (iii) surface erosion rate of the accumulating supraglacial debris, and (iv) the inherited nuclide concentrations in the englacial debris at the time of ice emplacement.
+
+Before running this script all variable in the 'Set/define all model parameters and dataset' should be adjusted to fit the data set and desired model constraints.
+ 
+To run 1 Monte Carlo iteration takes ~2-3 min. If increasing the Monte Carlo iterations to greater than 4 iterations, it is suggested to replace the 'for' loop to a 'parfor' loop in line 126 to decrease running time.
+ 
+This script can be send to a supercomputer for faster results. To do this one will need to have set up a parallel cluster for a supercomputer. The script can the be in the comman window by below batch statement, where the pool number is the number of parallel workers running the loop simultaniously
+
+j = batch(c,'MC_optimizer','Pool',100,'CurrentFolder','.','AutoAddClientPath',false)
+ 
+
+Parameters to be specified before running the script
+
+Data set used for analysis
+load data_core1
+
+Define measured till thickness (cm and g cm-2)
+ztill.d = sampledata{7}.bd; % depth of the till (cm)
+ztill.dz = sampledata{7}.bdz; % mass depth of the till (cm/g2)
+
+Define samples included in model fitting (= 0 don’t use, = 1 use)
+mask = [1 1 1 1 1 1 1 1 1 1 0 0 0 1 1 1 0 0 0 0 0]; % Surf+PIT2+LowIce
+
+Define nuclides included in model fitting (= 0 don’t use, = 1 use)
+nmask = [1 1 1]; % nmask = [Be-21 Ne-21 Al-26]
+
+Define samples included in burial constraints (= 0 don’t use, = 1 use, = 2 use + calculate burial age). Note (burialmask(n) = 1)  (mask(n) = 1)
+burialmask = [0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 0 1 1 1 1 1];
+ 
+Set number of Monte Carlo iterations
+numits = 10000;
+
+Define starting values for the optimizer. 
+% X0 = [sub(m/My),erosion(m/My),Age(My),10-inh(1e5),21-inh(1e6),26-inh(1e5)]
+X0 = [22.7 0.89 1.83 1.4 11.4 8.2];
+
+Set upper and lower bounds for the optimizer
+minx = [0 0 0 0 0 0]; % Lower bound
+maxx = [100 2 10 20 15 50]; % Upper bound
+
+Set optimizer settings 
+opts = optimset('fmincon');
+opts = optimset(opts,'TolFun',1e-3,'display','off','tolX',1e3, 'MaxFunEvals',300,'MaxIter',300);
+
+Optimizer function explanation
+
+Fmincon
+[x, fval] = fmincon(@X fun, X0, A, b, Aeq, beq, lb, ub, nonlcon, options)
+
+fmincon	find minimum of constrained nonlinear multivariable function
+[x,fval]	returns the value of the objective function fun at the solution x
+X0		initial points (starting values for optimization)
+A		linear inequality constraints, specified as a matrix (M-by-N)
+b		linear inequality constraints, specified by a vector, such that A*x = b
+Aeq		linear equality constraints, specified as a matrix (M-by-N)
+beq		linear equality constraints, specified by a vector, such that Aeq*x = beq
+lb		lower bounds, or minimum value of x
+ub		upper bounds, or maximum values of x
+Nonlcon	Nonlinear constraints, specified as a function handle or function name
+Options	Optimization options
+
+
+Optimization parameters used by MATLAB functions and Optimization Toolbox functions:
+
+Parameter	Value	Description
+Display	'off' | 'iter' | 'final' | 'notify'	Level of display. 'off' displays no output; 'iter' displays output at each iteration; 'final' displays just the final output; 'notify' dislays output only if the function does not converge.
+MaxFunEvals	positive integer	Maximum number of function evaluations allowed.
+MaxIter	positive integer	Maximum number of iterations allowed.
+TolFun	positive scalar	Termination tolerance on the function value.
+TolX	positive scalar	Termination tolerance on  .
+
+
+List of files required for running this script
+-	antatm.m
+-	get_burial_age.m
+-	get_misfit.m
+-	nonlcon.m
+-	P_of_z.m
+-	plot_forward_model.m
+-	plot_forward_model_sample_depth.m
+-	Precalculate_P_of_z.m
+-	objective_sublimation_model.m
+-	save_data_x/data_core1.mat
+-	stone2000
+-	sublimation_model_params.m
+-	z_of_t.m
+-	plot_forward_model.m
+-	plot_forward_model_sample_depth.m
+
+
+Display output
+
+-	Average and 1-stdev statistical results for all model parameters
+-	Cumulative distribution statistical results for all model parameters (68% confidence interval)
+
+ 
+nonlcon (X,samples,ztill,burialmask,P) Function
+
+This function is the non linear constraint used for optimizing the forward model and follows that of nonlcon in fminsearch: a Nonlinear constraints, specified as a function handle or function name accepts a vector or array x and returns two arrays, c(x) and ceq(x).
+ 
+This function accepts the optimized 'X' structure and the till thickness structure 'ztill', obtain the sublimation model parameters and set the inheritance parameters to zero, runs the forward model and add the predicted concentrations to the sampledata, finds the difference between the modeled and measured nuclide concentrations. When adding the concentrtion lost by decay during exposure time, the nuclide ratio for any of the pair cannot exceed the simple exposure line.
+ 
+These ratios are used as burial constraints for the the forward model optimization as the optimized age cannot be older than the minimum burial age for any samples across all nuclide ratios.
+
+Input
+	X – the parameter vector
+X(1) sublimation rate m/Myr
+X(2) erosion rate m/Myr
+X(3) age Ma
+X(4) inherited N10 (100000 atoms)
+X(5) inherited N21 (Matoms)
+X(6) inherited N26 (100000 atoms)
+	samples – saved datasample structure
+ztill – till thicknes structure: depth (.z) and mass depth (.dz)
+Burialmask – n-element vector of zeroes and ones that tells which samples to consider for calculating burial age. 1 = use and 0 = don’t use
+P – the production rate structure (Pall)
+
+
+
+Outputs
+
+c -  The nonlinear inequalities (< 0), where the nuclide ratio must be less than the exposure ratio
+ceq -   The nonlinear equalities (= 0), this is not used and is empty []
+ 
+objective_sublimation_model (X, samples, P, mask, nmask, plotFlag ) function
+
+This script is a wrapper for the get_misfit.m function that allows it to be used with the matlab optimizer fminsearch() function.
+
+It converts the variable data’s units into correct cm/g/yr unites, obtain the model parameter structure, calls the get_misfit.m function, and returns the misfit value based in input data.
+
+Input
+	X – the parameter vector
+X(1) sublimation rate m/Myr
+X(2) erosion rate m/Myr
+X(3) age Ma
+X(4) inherited N10 (100000 atoms)
+X(5) inherited N21 (Matoms)
+X(6) inherited N26 (100000 atoms)
+	samples – saved datasample structure
+	P – the production rate structure (Pall)
+mask – n-element vector of zeroes and ones that tells which samples to consider in calculating the misfit. 1 = use and 0 = don’t use
+nmask – similar mask for nuclides to use.
+plotFlag – if omitted, plots predicted nuclide concentration. PlotFlag = 0 suppresses the plot and only provide the predicted nuclide concentration values
+
+Output
+	Out – Return single misfit value for use by optimizer
+
+Example
+
+
+Note: data.Ztill is set to be 110.15 g/cm2 based on the core1 data set. If other data sets are used, this will need to be adjusted accordingly.
+
+ 
+P_of_Z (z, P, nuclide) function
+
+This function uses a precalculated production rates structure, interpolate the values and returns the production rate (atoms g-1 yr-1) at specific depth z (g cm-2) of interest.
+
+Input
+	z – depth of interest, and works for vectors
+	P – the structure P in the form of P.zg (depth) and P.P (production rates) for interpolation
+	Nuclide – nuclide of interest (10, 21, or 26) to get production rates of.
+
+Output
+	P – Production rates of nuclide of interest
+ 
+plot_forward_model (data, P, plotFlag) function
+
+This function generates a model prediction and optionally plots it on the same plots as the measurements when run with data base plot.
+
+The prediction of cosmogenic nuclide concentration are an integral of P(z(t)) from some time of ice emplacement data.T to present and are as followed examples
+
+Stable nuclide
+N21 = integral(@(t) P_of_z( z_of_t( t ), 0, data.T)
+
+Unstable nuclide example
+N10 = integral(@(t) P_of_z( z_of_t( t ) * exp(-l10.*t), 0, data.T)
+
+This takes a current depth of a sample, predict what its depth used to be going back in time based on z_of_t.m then find the associated production rate at those depth and integrate those through time and produce the total amount of nuclides that has accumulated during this time period under a certain environmental conditions.
+
+Input
+	Data – data structure generated from sublimation_model_params.m
+	Data.N10inh – include cosmogenic nuclide inheritance (10, 21 and 26)
+	P – the production rate structure
+plotFlag – if omitted, plots predicted nuclide concentration. PlotFlag = 0 suppresses the plot and only provide the predicted nuclide concentration values
+
+Output
+	z – Mass depth (g cm-2)
+	N10 – predicted 10Be concentrations at mass depths
+N21 – predicted 21Ne concentrations at mass depths
+N26 – predicted 26Al concentrations at mass depths
+
+Additional modifications:
+	plot_forward_model_zs.m
+	Allows you to determine at which depth integration should be predicted for.
+
+	plot_forward_model_sample_depth.m
+	Creates model predictions based on given sample data depths.
+
+ 
+% Set parameters
+s_m_Myr = 20; % 1. Sublimation rate m/Myr
+ET_m_Myr = 0.9; % 2. Till erosion rate
+data.T = 1e6; % 3. Ice emplacement age
+data.N10inh = 1e5;
+data.N26inh = 7e5;
+data.N21inh = 10e6;
+ 
+% convert s to cm/yr
+data.s = s_m_Myr .* 1e-4;
+ 
+% Convert ET to g/cm2/yr
+data.ET = ET_m_Myr.*100.*(110.15./62)./1e6;
+% Enter measured till thickness (g/cm2)
+data.Ztill = 110.15;
+ 
+% Get implied debris densities, etc. from sublimation_model_params.m
+ 
+data = sublimation_model_params(data);
+
+% Load Precalculated productions rates at depth
+
+load Pall
+
+Ncalc = plot_forward_model(data,P,0);
+
+ 
+Precalculate_P_of_z.m script
+
+This script defines a series of depths between zero and some large values, and computes spallation, muon and total production rates at all depths. The production rates are stored as a structure of 4 vectors called P that containing the depth values and the production rates for each of the nuclides, 10Be, 26Al, and 21Ne, and saves it as a .mat file called Pall. This script has no input or arguments but does contain parameters such as elevation and latitude specific to Ong Valley drill site. If used for other locations, these should be changed accordingly.
+
+The total production rate is the production of cosmogenic nuclide produced by spallation and muon interactions. Currently, the production due to spallation is scaled used the ‘LDSn’ method. To use the ‘St’ scaling method (stone2000.m), one would manually change the scaling equation used. 
+
+Output (structure)
+	P.zg – logarithmic matrix of mass depths (g/cm2)
+	P.P – Matrix of 3 of production rates at corresponding zg depths for 10Be, 26Al, and 21Ne.
+
+Example
+
+precalculate_P_of_z
+
+or
+
+load Pall;
+
+ 
+save_data_x script
+
+These scripts save all data information for a given sample into a sampledata structure file.
+
+The data used is obtained from various spreadsheet; include debris and ice core weights and densities, measured cosmogenic nuclide concentrations and uncertainties.
+
+Basically, one pastes data from the various spreadsheets into this script and runs it. That will store the data in a form that can be easily used for plotting and model-data comparison later. 
+
+Note this script includes shielding depth calculations for till and ice inside the script. That should make it easier to change these here instead of having to go back to the spreadsheet.
+
+Saved sampledata structure:
+
+td	Top depth of sample segment (cm)
+bd	Bottom depth of sample segment (cm)
+sample_name	Name of the sample segment
+tdz	Top mass depth of sample segment (g/cm2)
+bdz	Bottom mass depth of sample segment (g/cm2)
+Mq	Mass of quartz in subsample mixed to make complete sample
+Mqtd	Top depth of subsample (cm)
+Mqbd	Bottom depth of subsample (cm)
+Mqtdz	Top mass depth of subsample (g/cm2)
+Mqbdz	Bottom mass depth of subsample (g/cm2)
+allN21s	All 21Ne concentration measurements (atom/g qt)
+alldN21s	All 21Ne concentration uncertainty (atom/g qt)
+N21	Calculated measured average 21Ne concentration (atom/g qt)
+dN21	Calculated 21Ne concentration uncertainty (atoms/g qt)
+N26	Measured 26Al concentration (atoms/g qt)
+dN26	Measured 26Al uncertainty (atoms/g qt)
+N10	Measured 10Be concentration (atoms/g qt)
+dN10	Measured 10Be uncertainty (atoms/g qt)
+
+Note: Missing sample data information is entered as NaN and can at later time be added.
+ 
+Stone2000 (lat, P, Fsp)
+
+This function calculates the geographic scaling factor for cosmogenic nuclide production with varying latitude and altitude
+
+Reference
+
+Stone, J., 2000, Air Pressure and Cosmogenic Isotope Production. JGR 105:B10, p. 23753.
+
+
+Input
+	Lat – The site latitude (decimal degrees)
+	p – atmospheric pressure at the site (hPa)
+Fsp – fraction of production due to neutron spallation. If omitted, it defaults to 0.978 which is the correct value for 10Be. For Fsp = 1, the scaling factor is for spallation only, and Fsp = 0 the scaling factor is for production by muons only
+
+Output
+	Scaling factor – scaling factor for the surface production rate for 10Be.
+
+Example
+elv_m = 1686; % meters. 
+ 
+pressure = antatm(elv_m); % convert to atmospheric pressure in hPa
+ 
+sf_St = stone2000(-83.25,pressure,1); 
+
+ 
+sublimation_model_params (in) function
+
+This function calculates various parameters needed for a sublimation-erosion model for till-covered ice and adds the parameters to the input data structure. The parameters added are initial thickness of the ice, which has been consumed during model, the density of debris in mixture, the implied sediment concentration of consumed ice based on input data and the density of ice mixture.
+
+Input
+in.T - age of ice (yr)
+in.s - sublimation rate, i.e. rate that ice mass surface is lowering (cm/yr)
+in.ET - surface erosion rate of till (g/cm2/yr)
+in.Ztill - present till thickness (g/cm2)
+
+Output
+out.z_ice_init - implied ice thickness consumed during model time
+out.CDrhoM - implied density of debris in ice/debris mixture
+out.CD - implied weight fraction of debris in ice
+out.rhoM - implied density of ice/debris mixture
+
+Example for using the function with the conversion into correctly used units, based on Ong Valley ice core model.
+% Set parameters
+s_m_Myr = 20.7; % 1. Sublimation rate m/Myr
+ET_m_Myr = 0.15; % 2. Till erosion rate
+data.T = 3e6; % 3. Ice emplacement age
+
+% convert s to cm/yr
+data.s = s_m_Myr .* 1e-4;
+ 
+% Convert ET to g/cm2/yr
+data.ET = ET_m_Myr.*100.*(110.15./62)./1e6;
+% Enter measured till thickness (g/cm2)
+data.Ztill = 110.15;
+ 
+% Get implied debris densities, etc. from sublimation_model_params.m 
+data = sublimation_model_params(data);
+
+ 
+z_of_t (t,z_now,data) function
+
+This function calculates a samples depth at some time in the past, based on an eroding-till-over-sublimating-ice model. This function works for a one dimensional matrix of t and returns an equal matrix of z
+
+Input
+	t – the time before present you want to know z at (yr)
+	z_now – the present mass depth of a sample below the surface (g/cm2)
+data – data structure of model parameters, e.g. age, rates, etc. and is generated by sublimation_model_params.m
+
+Output
+	z – the mass depth of the sample at time t before present
+
+Example for using this function with visual plot
+% Test z(t) for one representative sample. 
+
+% Define sample depth and time mesh, and compute z(t) 
+z = 50; % depth below surface (cm)
+ 
+% convert sample depth to mass depth
+z_now = z.*rho_till; % g/cm2
+ 
+ts = linspace(0,data.T,100); %generate a 1x100 matrix from 0 to data.T
+zs = z_of_t(ts,z_now,data);
+ 
+figure; 
+plot(ts./1e6,zs);
+xlabel('Time ago (Myr)');
+set(gca,'xlim',[0 data.T./1e6]);
+ylabel('Depth (g/cm2)');
+set(gca,'ylim',[0 (max(zs)+200)],'YDir','reverse');
+ 
+ 
+
+
+
+
